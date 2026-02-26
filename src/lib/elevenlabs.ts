@@ -10,12 +10,31 @@ function getAudioContext(): AudioContext {
   return audioContext
 }
 
-export async function speak(text: string): Promise<void> {
-  if (!API_KEY) {
-    console.warn('ElevenLabs API key not set, skipping TTS')
-    return
-  }
+function speakBrowser(text: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const synth = window.speechSynthesis
+    synth.cancel() // stop any ongoing speech
 
+    const utterance = new SpeechSynthesisUtterance(text)
+    utterance.lang = 'de-DE'
+    utterance.rate = 1.3
+    utterance.pitch = 1.0
+
+    // Prefer a German voice if available
+    const voices = synth.getVoices()
+    const germanVoice = voices.find((v) => v.lang.startsWith('de'))
+    if (germanVoice) utterance.voice = germanVoice
+
+    utterance.onend = () => resolve()
+    utterance.onerror = (e) => {
+      if (e.error === 'interrupted' || e.error === 'canceled') resolve()
+      else reject(new Error(`SpeechSynthesis error: ${e.error}`))
+    }
+    synth.speak(utterance)
+  })
+}
+
+async function speakElevenLabs(text: string): Promise<void> {
   const response = await fetch(
     `https://api.elevenlabs.io/v1/text-to-speech/${VOICE_ID}`,
     {
@@ -60,7 +79,16 @@ export async function speak(text: string): Promise<void> {
   })
 }
 
+export async function speak(text: string): Promise<void> {
+  if (API_KEY) {
+    return speakElevenLabs(text)
+  }
+  // Fallback: free browser TTS
+  return speakBrowser(text)
+}
+
 export function stopAudio(): void {
+  window.speechSynthesis?.cancel()
   if (audioContext) {
     audioContext.close()
     audioContext = null

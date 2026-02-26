@@ -9,7 +9,7 @@ interface VoiceButtonProps {
 export function VoiceButton({ isRecording, isProcessing, isSpeaking, onToggle, disabled }: VoiceButtonProps) {
   const getStatus = () => {
     if (isProcessing) return 'Verarbeite...'
-    if (isSpeaking) return 'Assistent spricht...'
+    if (isSpeaking) return 'Tippen zum Unterbrechen'
     if (isRecording) return 'Aufnahme... (tippen zum Stoppen)'
     return 'Tippen zum Sprechen'
   }
@@ -27,7 +27,7 @@ export function VoiceButton({ isRecording, isProcessing, isSpeaking, onToggle, d
     <div className="flex flex-col items-center gap-3">
       <button
         onClick={onToggle}
-        disabled={disabled || isProcessing || isSpeaking}
+        disabled={disabled || isProcessing}
         className={getButtonClass()}
         aria-label={isRecording ? 'Aufnahme stoppen' : 'Sprechen'}
       >
@@ -48,15 +48,10 @@ export function VoiceButton({ isRecording, isProcessing, isSpeaking, onToggle, d
             ))}
           </div>
         ) : isSpeaking ? (
-          <div className="flex gap-1 items-end h-8">
-            {[1, 2, 3, 4, 5].map((i) => (
-              <div
-                key={i}
-                className="w-1.5 bg-white/80 rounded-full wave-bar"
-                style={{ height: `${10 + i * 3}px`, animationDelay: `${i * 0.1}s` }}
-              />
-            ))}
-          </div>
+          /* Stop icon — click to interrupt */
+          <svg className="w-8 h-8 text-white" fill="currentColor" viewBox="0 0 24 24">
+            <rect x="6" y="6" width="12" height="12" rx="2" />
+          </svg>
         ) : (
           <svg className="w-9 h-9 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
