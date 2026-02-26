@@ -14,8 +14,10 @@ export function ConversationView({ turns }: ConversationViewProps) {
 
   if (turns.length === 0) {
     return (
-      <div className="flex-1 flex items-center justify-center">
+      <div className="flex-1 flex flex-col items-center justify-center gap-3 fade-in">
+        <div className="text-4xl float">💬</div>
         <p className="text-slate-500 text-sm">Das Gespräch erscheint hier...</p>
+        <p className="text-slate-600 text-xs">Tippen Sie den Knopf unten um zu beginnen</p>
       </div>
     )
   }
@@ -25,29 +27,26 @@ export function ConversationView({ turns }: ConversationViewProps) {
       {turns.map((turn) => (
         <div
           key={turn.id}
-          className={`flex ${turn.speaker === 'user' ? 'justify-end' : 'justify-start'}`}
+          className={`flex ${turn.speaker === 'user' ? 'justify-end slide-in-right' : 'justify-start slide-in-left'}`}
         >
           {turn.speaker === 'assistant' && (
-            <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center mr-2 flex-shrink-0 mt-1">
-              <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                  d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17H4a2 2 0 01-2-2V5a2 2 0 012-2h16a2 2 0 012 2v10a2 2 0 01-2 2h-1" />
-              </svg>
+            <div className="w-9 h-9 rounded-full bg-gradient-to-br from-violet-600 to-indigo-600 flex items-center justify-center mr-2 flex-shrink-0 mt-1 shadow-lg glow-purple">
+              <span className="text-sm">🤖</span>
             </div>
           )}
 
           <div
-            className={`max-w-[78%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${
+            className={`max-w-[78%] rounded-2xl px-4 py-3 text-sm leading-relaxed shadow-lg ${
               turn.speaker === 'user'
-                ? 'bg-blue-600 text-white rounded-br-sm'
-                : 'bg-slate-800 text-slate-100 rounded-bl-sm'
+                ? 'bg-gradient-to-br from-violet-600 to-indigo-600 text-white rounded-br-sm glow-purple'
+                : 'glass text-slate-100 rounded-bl-sm border border-white/8'
             }`}
           >
             {turn.text}
           </div>
 
           {turn.speaker === 'user' && (
-            <div className="w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center ml-2 flex-shrink-0 mt-1">
+            <div className="w-9 h-9 rounded-full glass border border-white/10 flex items-center justify-center ml-2 flex-shrink-0 mt-1">
               <svg className="w-4 h-4 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
                   d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />

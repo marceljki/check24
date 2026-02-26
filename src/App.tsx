@@ -268,34 +268,37 @@ export default function App() {
   }
 
   return (
-    <div className="flex flex-col h-screen max-w-lg mx-auto">
+    <div className="relative flex flex-col h-screen max-w-lg mx-auto overflow-hidden">
+      {/* Animated background orbs */}
+      <div className="orb orb-a w-72 h-72 bg-violet-700/20 top-[-10%] left-[-15%]" />
+      <div className="orb orb-b w-64 h-64 bg-blue-600/15 bottom-[10%] right-[-10%]" />
+
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-slate-800 bg-slate-900">
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center">
-            <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-            </svg>
+      <div className="relative z-10 flex items-center justify-between px-4 py-3 glass border-b border-white/8">
+        <div className="flex items-center gap-2.5">
+          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-violet-600 to-indigo-600 flex items-center justify-center shadow-lg glow-purple">
+            <span className="text-sm">🤖</span>
           </div>
-          <span className="font-semibold text-white">Steuer-Assistent</span>
+          <span className="font-bold text-white text-sm">
+            <span className="gradient-text">Steuer</span>-Assistent
+          </span>
         </div>
         <div className="flex items-center gap-2">
           {appState === 'COLLECTING' && (
             <button
               onClick={() => generateSummaryPDF(selectedForms, collectedData)}
               title="PDF jetzt herunterladen"
-              className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-white px-2 py-1 rounded-full bg-slate-800 hover:bg-slate-700 transition-colors"
+              className="flex items-center gap-1.5 text-xs text-violet-400 hover:text-white px-2.5 py-1.5 rounded-full glass border border-violet-500/20 hover:border-violet-400/40 transition-all duration-150"
             >
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
                   d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
               </svg>
               PDF
             </button>
           )}
-          <span className="text-xs text-slate-500 px-2 py-1 rounded-full bg-slate-800">
-            {appState === 'DETECTING_FORM' ? 'Analyse' : `Feld ${fieldIndex + 1} / ${allFields.length}`}
+          <span className="text-xs text-slate-400 px-2.5 py-1.5 rounded-full glass border border-white/8">
+            {appState === 'DETECTING_FORM' ? '✨ Analyse' : `${fieldIndex + 1} / ${allFields.length}`}
           </span>
         </div>
       </div>
@@ -314,7 +317,7 @@ export default function App() {
       <ConversationView turns={turns} />
 
       {/* Voice input */}
-      <div className="border-t border-slate-800 bg-slate-900 px-4 py-6 flex justify-center">
+      <div className="relative z-10 glass border-t border-white/8 px-4 py-6 flex justify-center">
         <VoiceButton
           isRecording={recordingState === 'recording'}
           isProcessing={recordingState === 'processing'}
