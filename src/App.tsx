@@ -15,25 +15,48 @@ function generateId() {
   return Math.random().toString(36).slice(2)
 }
 
+// All mutable session data lives in a single ref so async callbacks
+// always read the latest values without stale closures.
+interface SessionData {
+  appState: AppState
+  messages: Message[]
+  allFields: FormField[]
+  fieldIndex: number
+  collectedData: CollectedData
+  selectedForms: FormDefinition[]
+}
+
 export default function App() {
   const [appState, setAppState] = useState<AppState>('WELCOME')
   const [recordingState, setRecordingState] = useState<RecordingState>('idle')
   const [isSpeaking, setIsSpeaking] = useState(false)
   const [turns, setTurns] = useState<ConversationTurn[]>([])
-  const [messages, setMessages] = useState<Message[]>([])
+
+  // Reactive copies for rendering
   const [selectedForms, setSelectedForms] = useState<FormDefinition[]>([])
   const [collectedData, setCollectedData] = useState<CollectedData>({})
   const [allFields, setAllFields] = useState<FormField[]>([])
   const [fieldIndex, setFieldIndex] = useState(0)
 
+  // Single ref for all values accessed inside async callbacks
+  const session = useRef<SessionData>({
+    appState: 'WELCOME',
+    messages: [],
+    allFields: [],
+    fieldIndex: 0,
+    collectedData: {},
+    selectedForms: [],
+  })
+
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const chunksRef = useRef<Blob[]>([])
 
-  const addTurn = useCallback((speaker: 'user' | 'assistant', text: string) => {
+  // ── helpers ─────────────────────────────────────────────────────────
+  function addTurn(speaker: 'user' | 'assistant', text: string) {
     setTurns((prev) => [...prev, { id: generateId(), speaker, text, timestamp: new Date() }])
-  }, [])
+  }
 
-  const speakAndAdd = useCallback(async (text: string) => {
+  async function speakAndAdd(text: string) {
     addTurn('assistant', text)
     setIsSpeaking(true)
     try {
@@ -43,21 +66,30 @@ export default function App() {
     } finally {
       setIsSpeaking(false)
     }
-  }, [addTurn])
+  }
+
+  function pushMessage(msg: Message) {
+    session.current.messages = [...session.current.messages, msg]
+    // no need to setMessages — messages only consumed inside async flow via ref
+  }
 
   // ── WELCOME → DETECTING ──────────────────────────────────────────────
   const handleStart = useCallback(async () => {
+    session.current.appState = 'DETECTING_FORM'
     setAppState('DETECTING_FORM')
-    const greeting = 'Guten Tag! Ich bin Ihr digitaler Steuer-Assistent. Ich helfe Ihnen dabei, die richtigen Formulare für Ihre Steuererklärung 2025 auszufüllen. Erzählen Sie mir kurz: Sind Sie angestellt, selbstständig, oder beides? Und haben Sie besondere Ausgaben wie Spenden oder Versicherungsbeiträge?'
-    const firstMsg: Message = { role: 'assistant', content: greeting }
-    setMessages([firstMsg])
-    await speakAndAdd(greeting)
-  }, [speakAndAdd])
 
-  // ── PROCESS USER SPEECH ──────────────────────────────────────────────
+    const greeting =
+      'Guten Tag! Ich bin Ihr digitaler Steuer-Assistent. Ich helfe Ihnen dabei, die richtigen Formulare für Ihre Steuererklärung 2025 auszufüllen. Erzählen Sie mir kurz: Sind Sie angestellt, selbstständig, oder beides? Und haben Sie besondere Ausgaben wie Spenden oder Versicherungsbeiträge?'
+
+    pushMessage({ role: 'assistant', content: greeting })
+    await speakAndAdd(greeting)
+  }, [])
+
+  // ── CORE: process audio blob after recording stops ───────────────────
   const handleUserSpeech = useCallback(async (audioBlob: Blob) => {
     setRecordingState('processing')
 
+    // ── STT ──
     let transcript = ''
     try {
       transcript = await transcribeAudio(audioBlob)
@@ -73,77 +105,85 @@ export default function App() {
     }
 
     addTurn('user', transcript)
-    const userMsg: Message = { role: 'user', content: transcript }
-    const updatedMessages = [...messages, userMsg]
-    setMessages(updatedMessages)
+    pushMessage({ role: 'user', content: transcript })
 
-    if (appState === 'DETECTING_FORM') {
-      const { response, selectedFormIds } = await detectForms(updatedMessages)
-      setMessages((prev) => [...prev, { role: 'assistant', content: response }])
+    // Read latest values from ref (no stale closure)
+    const { appState: currentState, messages, allFields: fields, fieldIndex: idx } = session.current
+
+    // ── DETECTING FORM ──
+    if (currentState === 'DETECTING_FORM') {
+      const { response, selectedFormIds } = await detectForms(messages)
+      pushMessage({ role: 'assistant', content: response })
 
       if (selectedFormIds && selectedFormIds.length > 0) {
-        const forms = selectedFormIds
-          .map((id) => FORM_BY_ID[id])
-          .filter((f): f is FormDefinition => !!f)
+        const forms = selectedFormIds.map((id) => FORM_BY_ID[id]).filter((f): f is FormDefinition => !!f)
+        const flatFields = forms.flatMap((f) => f.fields)
 
-        const fields = forms.flatMap((f) => f.fields)
+        // Update ref
+        session.current.selectedForms = forms
+        session.current.allFields = flatFields
+        session.current.fieldIndex = 0
+        session.current.appState = 'COLLECTING'
+
+        // Update React state for rendering
         setSelectedForms(forms)
-        setAllFields(fields)
+        setAllFields(flatFields)
         setFieldIndex(0)
-
-        const transitionMsg = response + '\n\nIch habe die richtigen Formulare für Sie identifiziert. Jetzt werde ich Ihnen ein paar Fragen stellen. ' + fields[0]?.question
-        setMessages((prev) => [...prev, { role: 'assistant', content: fields[0]?.question ?? '' }])
         setAppState('COLLECTING')
+
+        const firstQuestion = flatFields[0]?.question ?? ''
+        const transitionMsg = `${response} Gut, ich habe die passenden Formulare für Sie ausgewählt. Fangen wir an! ${firstQuestion}`
+        pushMessage({ role: 'assistant', content: firstQuestion })
         setRecordingState('idle')
         await speakAndAdd(transitionMsg)
       } else {
-        setMessages((prev) => [...prev, { role: 'assistant', content: response }])
+        // Need more info — keep asking
         setRecordingState('idle')
         await speakAndAdd(response)
       }
-    } else if (appState === 'COLLECTING') {
-      const currentField = allFields[fieldIndex]
-      const fieldContext = `Aktuelles Feld: ${currentField?.id} - "${currentField?.label}"\nFrage: "${currentField?.question}"\nFeldtyp: ${currentField?.type}${currentField?.options ? '\nOptionen: ' + currentField.options.join(', ') : ''}`
-
-      const { response, fieldAnswer } = await collectField(updatedMessages, fieldContext)
-      setMessages((prev) => [...prev, { role: 'assistant', content: response }])
-
-      let nextFieldIdx = fieldIndex
-      let newCollectedData = collectedData
-
-      if (fieldAnswer && fieldAnswer.fieldId) {
-        if (fieldAnswer.value !== null && fieldAnswer.value !== undefined) {
-          newCollectedData = { ...collectedData, [fieldAnswer.fieldId]: fieldAnswer.value as string | number | boolean }
-          setCollectedData(newCollectedData)
-        }
-
-        if (fieldAnswer.done) {
-          setAppState('COMPLETE')
-          setRecordingState('idle')
-          const doneMsg = 'Vielen Dank! Ich habe alle nötigen Informationen gesammelt. Sie können jetzt Ihre Zusammenfassung als PDF herunterladen.'
-          await speakAndAdd(doneMsg)
-          return
-        }
-
-        nextFieldIdx = fieldIndex + 1
-        setFieldIndex(nextFieldIdx)
-      }
-
-      setRecordingState('idle')
-
-      if (nextFieldIdx < allFields.length) {
-        const nextQuestion = allFields[nextFieldIdx]?.question
-        const fullResponse = response + (nextQuestion && !response.includes(nextQuestion) ? ' ' + nextQuestion : '')
-        await speakAndAdd(fullResponse)
-      } else {
-        setAppState('COMPLETE')
-        const doneMsg = 'Vielen Dank! Alle Felder wurden ausgefüllt. Sie können jetzt Ihre Zusammenfassung als PDF herunterladen.'
-        await speakAndAdd(doneMsg)
-      }
+      return
     }
-  }, [appState, messages, allFields, fieldIndex, collectedData, addTurn, speakAndAdd])
 
-  // ── RECORDING CONTROLS ───────────────────────────────────────────────
+    // ── COLLECTING FIELDS ──
+    if (currentState === 'COLLECTING') {
+      const currentField = fields[idx]
+      if (!currentField) {
+        setRecordingState('idle')
+        return
+      }
+
+      const nextField = fields[idx + 1] ?? null
+      const isLast = idx === fields.length - 1
+
+      const { response, value } = await collectField(messages, currentField, nextField)
+      pushMessage({ role: 'assistant', content: response })
+
+      // Save collected value
+      const newData = { ...session.current.collectedData }
+      if (value !== null && value !== undefined) {
+        newData[currentField.id] = value as string | number | boolean
+      }
+      session.current.collectedData = newData
+      setCollectedData(newData)
+
+      if (isLast) {
+        session.current.appState = 'COMPLETE'
+        setAppState('COMPLETE')
+        setRecordingState('idle')
+        await speakAndAdd(response)
+        return
+      }
+
+      // Advance to next field
+      const nextIdx = idx + 1
+      session.current.fieldIndex = nextIdx
+      setFieldIndex(nextIdx)
+      setRecordingState('idle')
+      await speakAndAdd(response)
+    }
+  }, []) // intentionally empty deps — reads all mutable state from session ref
+
+  // ── RECORDING ────────────────────────────────────────────────────────
   const startRecording = useCallback(async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
@@ -155,10 +195,10 @@ export default function App() {
         if (e.data.size > 0) chunksRef.current.push(e.data)
       }
 
-      recorder.onstop = async () => {
+      recorder.onstop = () => {
         stream.getTracks().forEach((t) => t.stop())
         const blob = new Blob(chunksRef.current, { type: mimeType })
-        await handleUserSpeech(blob)
+        void handleUserSpeech(blob)
       }
 
       recorder.start()
@@ -170,28 +210,24 @@ export default function App() {
   }, [handleUserSpeech])
 
   const stopRecording = useCallback(() => {
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-      mediaRecorderRef.current.stop()
+    if (mediaRecorderRef.current?.state !== 'inactive') {
+      mediaRecorderRef.current?.stop()
     }
   }, [])
 
   const handleVoiceToggle = useCallback(() => {
-    if (recordingState === 'idle') {
-      startRecording()
-    } else if (recordingState === 'recording') {
-      stopRecording()
-    }
+    if (recordingState === 'idle') startRecording()
+    else if (recordingState === 'recording') stopRecording()
   }, [recordingState, startRecording, stopRecording])
 
-  // ── COMPUTE PROGRESS ─────────────────────────────────────────────────
+  // ── PROGRESS ─────────────────────────────────────────────────────────
   const currentFormIndex = (() => {
-    if (allFields.length === 0) return 0
     let count = 0
     for (let i = 0; i < selectedForms.length; i++) {
       count += selectedForms[i]!.fields.length
       if (fieldIndex < count) return i
     }
-    return selectedForms.length - 1
+    return Math.max(0, selectedForms.length - 1)
   })()
 
   // ── RENDER ────────────────────────────────────────────────────────────
@@ -205,9 +241,16 @@ export default function App() {
         selectedForms={selectedForms}
         collectedData={collectedData}
         onRestart={() => {
+          session.current = {
+            appState: 'WELCOME',
+            messages: [],
+            allFields: [],
+            fieldIndex: 0,
+            collectedData: {},
+            selectedForms: [],
+          }
           setAppState('WELCOME')
           setTurns([])
-          setMessages([])
           setSelectedForms([])
           setCollectedData({})
           setAllFields([])
@@ -231,11 +274,11 @@ export default function App() {
           <span className="font-semibold text-white">Steuer-Assistent</span>
         </div>
         <span className="text-xs text-slate-500 px-2 py-1 rounded-full bg-slate-800">
-          {appState === 'DETECTING_FORM' ? 'Analyse' : 'Dateneingabe'}
+          {appState === 'DETECTING_FORM' ? 'Analyse' : `Feld ${fieldIndex + 1} / ${allFields.length}`}
         </span>
       </div>
 
-      {/* Progress bar (only during collection) */}
+      {/* Progress bar */}
       {appState === 'COLLECTING' && (
         <ProgressBar
           selectedForms={selectedForms}
